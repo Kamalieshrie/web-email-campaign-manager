@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheets Email System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .sheet-row:hover {
+            background-color: #f9fafb;
+        }
+        .status-sent {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        .status-error {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .status-queue {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+        .email-preview {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            background-color: white;
+        }
+        #email-preview-container {
+            min-height: 400px;
+        }
+        .date-input {
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            width: 100%;
+        }
+        .time-input {
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            width: 100%;
+        }
+        .flatpickr-input {
+            background-color: white;
+            cursor: pointer;
+        }
+        .date-cell {
+            min-width: 120px;
+        }
+        .time-cell {
+            min-width: 100px;
+        }
+        .debug-panel {
+            background-color: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .popup-content {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+        .has-date {
+            background-color: #f0f9ff;
+        }
+        .auto-refresh-indicator {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #10b981;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .auto-refresh-indicator.active {
+            opacity: 1;
+        }
+        .status-update-flash {
+            animation: flash 2s ease-in-out;
+        }
+        @keyframes flash {
+            0%, 100% { background-color: transparent; }
+            50% { background-color: #fef3c7; }
+        }       
+
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+        <!-- Auto-refresh indicator -->
+    <div id="autoRefreshIndicator" class="auto-refresh-indicator">
+        <span id="refreshStatus">Auto-refresh: ON</span>
+        <span id="lastUpdate"></span>
+    </div>
+
+        <!-- Auto-refresh controls -->
+    <div class="mb-4 p-3 bg-gray-50 rounded-lg">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <label class="flex items-center">
+                    <input type="checkbox" id="autoRefreshToggle" checked class="mr-2">
+                    <span class="text-sm font-medium">Auto-refresh status</span>
+                </label>
+                <select id="refreshInterval" class="text-sm border rounded px-2 py-1">
+                    <option value="5000">Every 5 seconds</option>
+                    <option value="10000" selected>Every 10 seconds</option>
+                    <option value="30000">Every 30 seconds</option>
+                    <option value="60000">Every 1 minute</option>
+                    <option value="120000">Every 2 minutes</option>
+                </select>
+            </div>
+            <button id="manualRefresh" class="text-sm bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded">
+                Refresh Now
+            </button>
+        </div>
+    </div>
+
+    <div class="max-w-6xl mx-auto p-6">
+        <header class="bg-white rounded-lg shadow p-6 mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Google Sheets Email System</h1>
+            <p class="text-gray-600">Load contacts from Google Sheets and send personalized emails</p>
+        </header>
+ 
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Sheet Configuration</h2>
+            <div class="grid md:grid-cols-3 gap-4 items-end mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Spreadsheet ID</label>
+                    <input id="sheetId" class="border p-3 rounded w-full focus:ring-2 focus:ring-blue-500"
+                           placeholder="16yxSx7KJMzPLCimW26QooXQlT6WD4eCvWgtzc9V5kQs" value="16yx5x7KJMzPLCImWz6QooXQIT8WD4eCvM">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Worksheet Name</label>
+                    <input id="wsName" class="border p-3 rounded w-full"
+                           placeholder="Worksheet Name" value="ContactsData">
+                </div>
+                <button id="loadBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded font-medium flex items-center justify-center">
+                    Load Contacts
+                </button>
+            </div>
+           
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 class="font-semibold text-blue-800 mb-2">How to use:</h3>
+                <ol class="list-decimal list-inside text-sm text-blue-700 space-y-1">
+                    <li>Enter your Google Sheet ID (found in the URL of your sheet)</li>
+                    <li>Enter the Worksheet name (default is "ContactsData")</li>
+                    <li>Click "Load Contacts" to fetch data</li>
+                    <li>Select rows and preview emails</li>
+                    <li>Click "Send Selected" to send emails</li>
+                </ol>
+            </div>
+        </div>
+ 
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Contacts</h2>
+            <div id="contacts" class="overflow-x-auto">
+                <p class="text-gray-500 text-center py-8">Enter a Sheet ID and Worksheet name above to load contacts</p>
+            </div>
+        </div>
+ 
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Email Actions</h2>
+            <div class="flex flex-wrap items-center gap-4 mb-4">
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Brand Name</label>
+                    <input id="brand" class="border p-3 rounded w-full"
+                           placeholder="Brand Name" value="Nobel Nest">
+                </div>
+                <button id="previewBtn" class="bg-gray-700 hover:bg-gray-800 text-white px-6 py-3 rounded font-medium">
+                    Preview Selected
+                </button>
+                <button id="sendBtn" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded font-medium">
+                    Send Selected
+                </button>
+                <!-- <button id="testScheduleBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded font-medium">
+                    Test Scheduling
+                </button> -->
+            </div>
+            <div id="preview" class="mt-4"></div>
+        </div>
+ 
+        <!-- Debug Panel -->
+        <div class="bg-white rounded-lg shadow p-6 mt-6">
+            <h2 class="text-xl font-semibold mb-4">Debug Information</h2>
+            <div class="debug-panel" id="debugInfo">
+                Ready to connect...
+            </div>
+            <button id="refreshDebug" class="mt-4 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm">
+                Refresh Debug Info
+            </button>
+        </div>
+    </div>
+ 
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        // API base URL - points to your backend
+        const API_BASE = 'http://localhost:8000';
+       
+        // DOM elements
+        const loadBtn = document.getElementById('loadBtn');
+        const sheetIdInput = document.getElementById('sheetId');
+        const wsNameInput = document.getElementById('wsName');
+        const contactsDiv = document.getElementById('contacts');
+        const previewBtn = document.getElementById('previewBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        // const testScheduleBtn = document.getElementById('testScheduleBtn');
+        const brandInput = document.getElementById('brand');
+        const previewDiv = document.getElementById('preview');
+        const debugInfo = document.getElementById('debugInfo');
+        const refreshDebugBtn = document.getElementById('refreshDebug');
+        const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+        const refreshInterval = document.getElementById('refreshInterval');
+        const manualRefresh = document.getElementById('manualRefresh');
+        const autoRefreshIndicator = document.getElementById('autoRefreshIndicator');
+        const refreshStatus = document.getElementById('refreshStatus');
+        const lastUpdate = document.getElementById('lastUpdate');
+       
+        // Store loaded data
+        let rows = [];
+        let headers = [];
+        
+        // Track if this is the first load
+        let isFirstLoad = true;
+        // Prevent duplicate popups
+        let isPopupOpen = false;
+
+        let autoRefreshTimer = null;
+        let previousRowStates = new Map(); // Track previous states to detect changes
+
+        // Auto-refresh functionality
+        function startAutoRefresh() {
+            const interval = parseInt(refreshInterval.value);
+            stopAutoRefresh();
+            
+            if (autoRefreshToggle.checked && rows.length > 0) {
+                autoRefreshTimer = setInterval(() => {
+                    refreshStatusSilently();
+                }, interval);
+                
+                refreshStatus.textContent = `Auto-refresh: ON (${interval/1000}s)`;
+                autoRefreshIndicator.classList.add('active');
+                debugLog(`Auto-refresh started with ${interval/1000}s interval`);
+            } else {
+                refreshStatus.textContent = 'Auto-refresh: OFF';
+                autoRefreshIndicator.classList.remove('active');
+            }
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+        }
+
+        // Silent refresh that only updates changed statuses
+        async function refreshStatusSilently() {
+            if (!rows.length || isPopupOpen) return;
+            
+            const spreadsheet_id = sheetIdInput.value.trim();
+            const worksheet_name = wsNameInput.value.trim();
+            
+            if (!spreadsheet_id) return;
+
+            try {
+                debugLog('Performing silent status refresh...');
+                
+                const res = await fetch(`${API_BASE}/contacts/list`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({spreadsheet_id, worksheet_name})
+                });
+
+                if (!res.ok) return;
+
+                const data = await res.json();
+                const newRows = data.rows || [];
+                
+                // Check for status changes
+                let hasChanges = false;
+                const changedRows = new Set();
+                
+                newRows.forEach(newRow => {
+                    const oldRow = rows.find(r => r._row_index === newRow._row_index);
+                    if (oldRow && oldRow.Status !== newRow.Status) {
+                        hasChanges = true;
+                        changedRows.add(newRow._row_index);
+                        debugLog(`Status change detected for row ${newRow._row_index}: ${oldRow.Status} -> ${newRow.Status}`);
+                    }
+                });
+
+                if (hasChanges) {
+                    // Update the rows data
+                    rows = newRows;
+                    
+                    // Re-render the table
+                    renderTable();
+                    
+                    // Highlight changed rows
+                    changedRows.forEach(rowIndex => {
+                        const rowElement = document.querySelector(`tr input[data-idx="${rowIndex}"]`)?.closest('tr');
+                        if (rowElement) {
+                            rowElement.classList.add('status-update-flash');
+                            setTimeout(() => {
+                                rowElement.classList.remove('status-update-flash');
+                            }, 2000);
+                        }
+                    });
+
+                    lastUpdate.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+                    debugLog(`Silent refresh completed - ${changedRows.size} status changes detected`);
+                } else {
+                    lastUpdate.textContent = `Checked: ${new Date().toLocaleTimeString()}`;
+                }
+                
+            } catch (error) {
+                console.error('Silent refresh failed:', error);
+                debugLog(`Silent refresh failed: ${error.message}`);
+            }
+        }
+
+        // Debug logging
+        function debugLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debugInfo.innerHTML += `[${timestamp}] ${message}<br>`;
+            debugInfo.scrollTop = debugInfo.scrollHeight;
+            console.log(message);
+        }
+ 
+        // Show loading state
+        function showLoading(button, text = 'Loading...') {
+            const originalText = button.textContent;
+            button.innerHTML = `<div class="loading"></div> ${text}`;
+            button.disabled = true;
+            return () => {
+                button.textContent = originalText;
+                button.disabled = false;
+            };
+        }
+ 
+        // Error handler
+        function handleError(error, defaultMessage = 'An error occurred') {
+            console.error('Error:', error);
+            debugLog(`ERROR: ${error.message || error.detail || defaultMessage}`);
+           
+            if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+                alert('Cannot connect to server. Make sure the backend is running on http://localhost:8000');
+            } else if (error.detail) {
+                alert(error.detail);
+            } else {
+                alert(defaultMessage);
+            }
+        }
+ 
+        // Function to show the scheduling popup with date and time
+        function showSchedulingPopup(count, date, time) {
+            isPopupOpen = true;        
+            return new Promise((resolve) => {
+                const popup = document.createElement('div');
+                popup.className = 'popup-overlay';
+                popup.innerHTML = `
+                    <div class="popup-content">
+                        <h3 class="text-lg font-semibold mb-4">Schedule Emails</h3>
+                        <p class="mb-4">You've selected ${count} emails with a future schedule (${date} at ${time}).</p>
+                        <p class="mb-4">These emails will be sent automatically at <strong>${time}</strong> on <strong>${date}</strong>.</p>
+                        <div class="flex justify-end space-x-3">
+                            <button id="scheduleCancel" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                            <button id="scheduleConfirm" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Schedule</button>
+                        </div>
+                    </div>
+                `;
+               
+                document.body.appendChild(popup);
+               
+                document.getElementById('scheduleCancel').addEventListener('click', () => {
+                    document.body.removeChild(popup);
+                    isPopupOpen = false;  // Add this line
+                    resolve(false);
+                });
+               
+                document.getElementById('scheduleConfirm').addEventListener('click', () => {
+                    document.body.removeChild(popup);
+                    isPopupOpen = false;  // Add this line
+                    resolve(true);
+                });
+            });
+        }
+        
+        // Function to show the immediate send popup
+        function showImmediateSendPopup(count) {
+            return new Promise((resolve) => {
+                // Guard: if a popup is already open, do not open another
+                if (isPopupOpen || document.querySelector('.popup-overlay')) {
+                    resolve(false);
+                    return;
+                }
+                isPopupOpen = true;
+
+                const popup = document.createElement('div');
+                popup.className = 'popup-overlay';
+                popup.innerHTML = `
+                    <div class="popup-content">
+                        <h3 class="text-lg font-semibold mb-4">Send Emails Immediately</h3>
+                        <p class="mb-4">Send ${count} emails immediately?</p>
+                        <div class="flex justify-end space-x-3">
+                            <button id="immediateCancel" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+                            <button id="immediateConfirm" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">OK</button>
+                        </div>
+                    </div>
+                `;
+               
+                document.body.appendChild(popup);
+               
+                document.getElementById('immediateCancel').addEventListener('click', () => {
+                    document.body.removeChild(popup);
+                    isPopupOpen = false;
+                    resolve(false);
+                });
+               
+                document.getElementById('immediateConfirm').addEventListener('click', () => {
+                    document.body.removeChild(popup);
+                    isPopupOpen = false;
+                    resolve(true);
+                });
+            });
+        }
+ 
+        // Test backend connection
+        async function testConnection() {
+            try {
+                const res = await fetch(`${API_BASE}/health`);
+                const data = await res.json();
+                if (data.ok) {
+                    debugLog("✅ Backend connection successful");
+                    return true;
+                } else {
+                    debugLog("❌ Backend connection failed");
+                    return false;
+                }
+            } catch (error) {
+                debugLog("❌ Cannot connect to backend");
+                return false;
+            }
+        }
+ 
+        // Load contacts from backend
+       // Load contacts from backend
+       async function loadContacts() {
+    const spreadsheet_id = sheetIdInput.value.trim();
+    const worksheet_name = wsNameInput.value.trim();
+   
+    if (!spreadsheet_id) {
+        alert('Please enter a Spreadsheet ID');
+        return;
+    }
+
+    debugLog(`Loading contacts from sheet: ${spreadsheet_id}, worksheet: ${worksheet_name}`);
+    const resetButton = showLoading(loadBtn, 'Loading...');
+   
+    try {
+        const res = await fetch(`${API_BASE}/contacts/list`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({spreadsheet_id, worksheet_name})
+        });
+
+        const data = await res.json();
+       
+        if (!res.ok) {
+            throw { detail: data.detail || 'Failed to load contacts' };
+        }
+
+        headers = data.headers || [];
+        rows = data.rows || [];
+        debugLog(`Loaded ${rows.length} contacts with headers: ${headers.join(', ')}`);
+        
+        // Set flag to indicate first load
+        if (isFirstLoad) {
+            debugLog("First load detected, adding small delay for date processing");
+            isFirstLoad = false;
+            
+            // Add a small delay to ensure all date processing works correctly
+            setTimeout(() => {
+                renderTable();
+            }, 300);
+        } else {
+            renderTable();
+        }
+       
+    } catch (error) {
+        handleError(error, 'Failed to load contacts');
+    } finally {
+        resetButton();
+    }
+}
+
+// Helper function to send immediate emails - UPDATED to properly store send time
+async function sendImmediateEmails(spreadsheet_id, worksheet_name, brand_name, row_indices) {
+    // Filter out already sent emails
+    const unsentRows = row_indices.filter(idx => {
+        const row = rows.find(r => r._row_index === idx);
+        return row && row['Status'] !== 'SENT' && !row['Status']?.startsWith('PENDING');
+    });
+
+    if (unsentRows.length === 0) {
+        alert('All selected emails have already been sent or scheduled');
+        return;
+    }
+
+    const confirmSend = await showImmediateSendPopup(unsentRows.length);
+    if (!confirmSend) return;
+
+    // Get current time for immediate sends
+    const now = new Date();
+    const sendTime = now.toTimeString().slice(0, 5); // Format as HH:MM
+    const sendDate = now.toLocaleDateString('en-GB'); // Format as DD/MM/YYYY
+    
+    debugLog(`Sending ${unsentRows.length} emails immediately at ${sendTime}`);
+    const resetButton = showLoading(sendBtn, 'Sending...');
+    
+    try {
+        // Send the emails with the send time information
+        const res = await fetch(`${API_BASE}/send`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                spreadsheet_id,
+                worksheet_name,
+                row_indices: unsentRows,
+                brand_name,
+                send_time: sendTime, // Pass send time to backend
+                send_date: sendDate  // Pass send date to backend
+            })
+        });
+
+        const data = await res.json();
+        
+        if (!res.ok) {
+            throw { detail: data.detail || 'Failed to send emails' };
+        }
+
+        debugLog(`Emails sent successfully: ${data.sent} sent`);
+        
+        // Update local data with send time for immediate emails
+        unsentRows.forEach(idx => {
+            const row = rows.find(r => r._row_index === idx);
+            if (row) {
+                row['Follow-up Time'] = sendTime;
+                row['Follow-up Date'] = sendDate;
+                row['Status'] = 'SENT';
+                row['Last Sent'] = `${sendDate} ${sendTime}`; // Store complete timestamp
+            }
+        });
+        
+        alert(`Successfully sent ${data.sent} emails at ${sendTime}!`);
+        
+        // Update the UI to show the send time
+        unsentRows.forEach(idx => {
+            const timeInput = document.querySelector(`.time-input[data-idx="${idx}"]`);
+            if (timeInput) {
+                timeInput.value = sendTime;
+                timeInput.disabled = true;
+                timeInput.classList.add('bg-gray-100', 'text-gray-500', 'cursor-not-allowed');
+            }
+            
+            const dateInput = document.querySelector(`.date-input[data-idx="${idx}"]`);
+            if (dateInput) {
+                dateInput.value = sendDate;
+                dateInput.disabled = true;
+                dateInput.classList.add('bg-gray-100', 'text-gray-500', 'cursor-not-allowed');
+            }
+            
+            const checkbox = document.querySelector(`.sel[data-idx="${idx}"]`);
+            if (checkbox) {
+                checkbox.disabled = true;
+            }
+            
+            // Update status cell
+            const statusCell = document.querySelector(`tr input[data-idx="${idx}"]`)
+                .closest('tr')
+                .querySelector('td:last-child span');
+            if (statusCell) {
+                statusCell.textContent = 'SENT';
+                statusCell.className = 'px-2 py-1 rounded text-xs status-sent';
+            }
+        });
+        
+    } catch (error) {
+        debugLog(`Send failed: ${error.detail || error.message}`);
+        handleError(error, 'Failed to send emails');
+    } finally {
+        resetButton();
+    }
+}
+
+// Render contacts table - UPDATED to properly handle sent emails with preserved time
+// Render contacts table - FIXED to show attempt timestamps for failed emails
+function renderTable() {
+    if (!rows.length) {
+        contactsDiv.innerHTML = '<p class="text-gray-500 text-center py-4">No contacts found or spreadsheet is empty.</p>';
+        return;
+    }
+   
+    // Filter out internal columns for display
+    const displayHeaders = headers.filter(h => !['_row_index', 'Status', 'Last Sent', 'Follow-up Time'].includes(h));
+   
+    const thead = displayHeaders.map(header =>
+        `<th class="px-4 py-2 border bg-gray-100 font-medium">${header}</th>`
+    ).join('');
+   
+    const body = rows.map(row => {
+        const status = row['Status'] || '';
+        const isSent = status === 'SENT';
+        const isPending = status.startsWith('PENDING');
+        const isFailed = status.includes('FAILED');
+        
+        // FIXED: All processed statuses (SENT, PENDING, FAILED) should show timestamps, not be editable
+        const isProcessed = isSent || isPending || isFailed;
+        
+        const statusClass = isPending ? 'status-pending' :
+                          isSent ? 'status-sent' :
+                          isFailed ? 'status-error' :
+                          status === 'QUEUE' ? 'status-queue' : 'status-queue';
+        
+        // Get timestamps for processed emails
+        let displayTime = '09:00';
+        let displayDate = '';
+
+        if (isProcessed) {
+            // For SENT emails - get actual send time
+            if (isSent) {
+                if (row['Follow-up Time']) {
+                    displayTime = row['Follow-up Time'];
+                }
+                if (row['Follow-up Date']) {
+                    displayDate = row['Follow-up Date'];
+                }
+                
+                // Fallback to Last Sent column
+                if (row['Last Sent'] && (!displayTime || !displayDate || displayTime === '09:00')) {
+                    const lastSentParts = row['Last Sent'].split(' ');
+                    if (lastSentParts.length >= 2) {
+                        if (!displayDate) displayDate = lastSentParts[0];
+                        if (!displayTime || displayTime === '09:00') {
+                            displayTime = lastSentParts[1];
+                        }
+                    }
+                }
+            }
+            // For PENDING emails - show scheduled time
+            else if (isPending) {
+                if (row['Follow-up Time']) {
+                    displayTime = row['Follow-up Time'];
+                }
+                if (row['Follow-up Date']) {
+                    displayDate = row['Follow-up Date'];
+                }
+            }
+            // For FAILED emails - show attempt timestamp from Last Sent
+            else if (isFailed) {
+                if (row['Last Sent']) {
+                    const lastSentParts = row['Last Sent'].split(' ');
+                    if (lastSentParts.length >= 2) {
+                        displayDate = lastSentParts[0]; // Date when attempt was made
+                        displayTime = lastSentParts[1]; // Time when attempt was made (with seconds)
+                    }
+                } else {
+                    // If no Last Sent, use current timestamp as attempt time
+                    const now = new Date();
+                    displayDate = now.toLocaleDateString('en-GB'); // DD/MM/YYYY
+                    displayTime = now.toTimeString().slice(0, 8); // HH:MM:SS
+                }
+                
+                // Fallback to Follow-up columns if Last Sent is empty
+                if (!displayDate && row['Follow-up Date']) {
+                    displayDate = row['Follow-up Date'];
+                }
+                if ((!displayTime || displayTime === '09:00') && row['Follow-up Time']) {
+                    displayTime = row['Follow-up Time'];
+                }
+            }
+            
+            // Ensure time has seconds for display
+            if (displayTime && displayTime.split(':').length === 2) {
+                displayTime += ':00';
+            }
+        } else {
+            // For unprocessed emails, use stored values or defaults
+            displayTime = row['Follow-up Time'] || '09:00';
+            displayDate = row['Follow-up Date'] || '';
+        }
+             
+        // Check if this row has a date set
+        const hasDate = displayDate && displayDate !== 'dd-mm-yyyy';
+        const rowClass = hasDate ? 'has-date' : '';
+       
+        const cells = displayHeaders.map(header => {
+            if (header === 'Follow-up Date') {
+                // Show disabled input with timestamp for processed emails
+                if (isProcessed) {
+                    return `<td class="px-4 py-2 border date-cell">
+                        <input type="text" class="date-input bg-gray-100 text-gray-600 cursor-not-allowed" 
+                               value="${displayDate || '-'}" 
+                               disabled readonly>
+                    </td>`;
+                }
+                // Editable for unprocessed emails
+                return `<td class="px-4 py-2 border date-cell">
+                    <input type="text" class="date-input flatpickr-input"
+                           data-idx="${row._row_index}"
+                           value="${displayDate}"
+                           placeholder="dd-mm-yyyy">
+                </td>`;
+            }
+            return `<td class="px-4 py-2 border">${(row[header] || '').toString()}</td>`;
+        }).join('');
+       
+        // Show disabled time input with timestamp for processed emails
+        const timeCell = isProcessed ? 
+            `<td class="px-4 py-2 border time-cell">
+                <input type="text" class="time-input bg-gray-100 text-gray-600 cursor-not-allowed" 
+                       value="${displayTime || '-'}" 
+                       disabled readonly>
+            </td>` :
+            `<td class="px-4 py-2 border time-cell">
+                <input type="time" class="time-input"
+                       data-idx="${row._row_index}"
+                       value="${displayTime}"
+                       step="1">
+            </td>`;
+       
+        return `<tr class="sheet-row ${rowClass}">
+            <td class="px-4 py-2 border">
+                <input type="checkbox" class="sel" data-idx="${row._row_index}" ${isProcessed ? 'disabled' : ''}>
+            </td>
+            ${cells}
+            ${timeCell}
+            <td class="px-4 py-2 border">
+                <span class="px-2 py-1 rounded text-xs ${statusClass}">${status || 'QUEUE'}</span>
+            </td>
+        </tr>`;
+    }).join('');
+
+    contactsDiv.innerHTML = `
+        <div class="overflow-x-auto">
+            <table class="min-w-full border-collapse border">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-2 border bg-gray-100 font-medium">Select</th>
+                        ${thead}
+                        <th class="px-4 py-2 border bg-gray-100 font-medium">Time</th>
+                        <th class="px-4 py-2 border bg-gray-100 font-medium">Status</th>
+                    </tr>
+                </thead>
+                <tbody>${body}</tbody>
+            </table>
+        </div>
+        <div class="mt-2 text-sm text-gray-600">
+            <p>Found ${rows.length} contacts.</p>
+            <p>${rows.filter(r => r['Status'] === 'SENT').length} already sent.</p>
+            <p>${rows.filter(r => r['Status']?.startsWith('PENDING')).length} scheduled.</p>
+            <p>${rows.filter(r => r['Status']?.includes('FAILED')).length} failed.</p>
+            <p>${rows.filter(r => r['Follow-up Date'] && r['Follow-up Date'] !== 'dd-mm-yyyy').length} have dates set.</p>
+        </div>
+    `;
+   
+    // Initialize date pickers ONLY for unprocessed emails
+    document.querySelectorAll('.date-input:not([disabled]):not([readonly])').forEach(input => {
+        flatpickr(input, {
+            dateFormat: "d-m-Y",
+            allowInput: true,
+            onChange: function(selectedDates, dateStr, instance) {
+                const rowIndex = parseInt(instance.input.dataset.idx, 10);
+                const newDate = dateStr;
+                debugLog(`Date changed for row ${rowIndex}: ${newDate}`);
+                
+                const row = document.querySelector(`tr input[data-idx="${rowIndex}"]`).closest('tr');
+                if (newDate && newDate !== 'dd-mm-yyyy') {
+                    row.classList.add('has-date');
+                } else {
+                    row.classList.remove('has-date');
+                }
+                
+                updateFollowUpDateForRow(rowIndex, newDate);
+            }
+        });
+    });
+   
+    // Add event listeners for time inputs ONLY for non-disabled inputs
+    document.querySelectorAll('.time-input:not([disabled]):not([readonly])').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const rowIndex = parseInt(e.target.dataset.idx, 10);
+            const newTime = e.target.value;
+            debugLog(`Time changed for row ${rowIndex}: ${newTime}`);
+            updateFollowUpTimeForRow(rowIndex, newTime);
+        });
+        
+        input.addEventListener('change', (e) => {
+            const rowIndex = parseInt(e.target.dataset.idx, 10);
+            const newTime = e.target.value;
+            debugLog(`Time finalized for row ${rowIndex}: ${newTime}`);
+            updateFollowUpTimeForRow(rowIndex, newTime);
+        });
+    });
+}
+ 
+        // Update follow-up date for a single row - FIXED VERSION
+        async function updateFollowUpDateForRow(rowIndex, followUpDate) {
+            const spreadsheet_id = sheetIdInput.value.trim();
+            const worksheet_name = wsNameInput.value.trim();
+        
+            if (!followUpDate) {
+                debugLog("No date provided for update");
+                return;
+            }
+
+            debugLog(`Updating date for row ${rowIndex} to ${followUpDate}`);
+        
+            // IMMEDIATELY update the local data to reflect the change
+            const row = rows.find(r => r._row_index === rowIndex);
+            if (row) {
+                row['Follow-up Date'] = followUpDate;
+                debugLog(`Local row data updated immediately for row ${rowIndex}`);
+            }
+        
+            try {
+                const res = await fetch(`${API_BASE}/update_followup_dates`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        spreadsheet_id,
+                        worksheet_name,
+                        row_indices: [rowIndex],
+                        follow_up_date: followUpDate
+                    })
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    // If API call fails, revert the local change
+                    if (row) {
+                        row['Follow-up Date'] = ''; // or previous value
+                        debugLog(`API call failed, reverted local change for row ${rowIndex}`);
+                    }
+                    throw { detail: errorData.detail || 'Failed to update follow-up date' };
+                }
+
+                const data = await res.json();
+                debugLog(`Date updated successfully: ${JSON.stringify(data)}`);
+            
+            } catch (error) {
+                console.error('Update error:', error);
+                debugLog(`Update failed: ${error.detail || error.message}`);
+                handleError(error, 'Failed to update follow-up date');
+            }
+        }
+
+        // Update follow-up time for a single row - FIXED VERSION
+        async function updateFollowUpTimeForRow(rowIndex, followUpTime) {
+            const spreadsheet_id = sheetIdInput.value.trim();
+            const worksheet_name = wsNameInput.value.trim();
+        
+            if (!followUpTime) {
+                debugLog("No time provided for update");
+                return;
+            }
+
+            debugLog(`Updating time for row ${rowIndex} to ${followUpTime}`);
+
+            // IMMEDIATELY update the local data to reflect the change
+            const row = rows.find(r => r._row_index === rowIndex);
+            if (row) {
+                row['Follow-up Time'] = followUpTime;
+                debugLog(`Local row data updated immediately for row ${rowIndex}`);
+            }
+        
+            try {
+                // First, ensure the Follow-up Time column exists
+                await ensureTimeColumnExists(spreadsheet_id, worksheet_name);
+            
+                // Then update the time value
+                const res = await fetch(`${API_BASE}/update_followup_time`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        spreadsheet_id,
+                        worksheet_name,
+                        row_indices: [rowIndex],
+                        follow_up_time: followUpTime
+                    })
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    // If API call fails, revert the local change
+                    if (row) {
+                        row['Follow-up Time'] = '09:00'; // or previous value
+                        debugLog(`API call failed, reverted local change for row ${rowIndex}`);
+                    }
+                    throw { detail: errorData.detail || 'Failed to update follow-up time' };
+                }
+
+                const data = await res.json();
+                debugLog(`Time updated successfully: ${JSON.stringify(data)}`);
+            
+            } catch (error) {
+                console.error('Update error:', error);
+                debugLog(`Update failed: ${error.detail || error.message}`);
+                handleError(error, 'Failed to update follow-up time');
+            }
+        }
+ 
+        // Ensure the Follow-up Time column exists in the sheet
+        async function ensureTimeColumnExists(spreadsheet_id, worksheet_name) {
+            try {
+                const res = await fetch(`${API_BASE}/ensure_time_column`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        spreadsheet_id,
+                        worksheet_name
+                    })
+                });
+ 
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw { detail: errorData.detail || 'Failed to ensure time column exists' };
+                }
+ 
+                return true;
+            } catch (error) {
+                console.error('Ensure column error:', error);
+                throw error;
+            }
+        }
+ 
+        // Preview email for selected row
+        async function previewEmail() {
+            const spreadsheet_id = sheetIdInput.value.trim();
+            const worksheet_name = wsNameInput.value.trim();
+            const brand_name = brandInput.value.trim();
+            const selected = document.querySelectorAll('.sel:checked');
+           
+            if (!selected.length) {
+                alert('Please select at least one row to preview');
+                return;
+            }
+ 
+            debugLog(`Generating preview for selected row`);
+            const resetButton = showLoading(previewBtn, 'Generating Preview...');
+           
+            try {
+                const row_index = parseInt(selected[0].dataset.idx, 10);
+                const res = await fetch(`${API_BASE}/preview`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({spreadsheet_id, worksheet_name, row_index, brand_name})
+                });
+ 
+                const data = await res.json();
+               
+                if (!res.ok) {
+                    throw { detail: data.detail || 'Preview generation failed' };
+                }
+ 
+                debugLog("Preview generated successfully");
+                previewDiv.innerHTML = `
+                    <div class="bg-white p-4 rounded-lg shadow">
+                        <div class="font-semibold mb-2 text-gray-700">Subject:</div>
+                        <div class="p-3 border border-gray-300 rounded bg-gray-50 mb-4 font-mono text-sm">${data.subject}</div>
+                        <div class="font-semibold mb-2 text-gray-700">Body Preview:</div>
+                        <div id="email-preview-container" class="w-full h-96 border border-gray-300 rounded bg-white overflow-auto" style="min-height: 400px;"></div>
+                    </div>
+                `;
+               
+                // Insert the HTML content directly into the div
+                const previewContainer = document.getElementById('email-preview-container');
+                previewContainer.innerHTML = data.html;
+               
+            } catch (error) {
+                debugLog(`Preview failed: ${error.detail || error.message}`);
+                handleError(error, 'Failed to generate preview');
+            } finally {
+                resetButton();
+            }
+        }
+
+        // Helper function to send immediate emails
+        async function sendImmediateEmails(spreadsheet_id, worksheet_name, brand_name, row_indices) {
+            // Filter out already sent emails
+            const unsentRows = row_indices.filter(idx => {
+                const row = rows.find(r => r._row_index === idx);
+                return row && row['Status'] !== 'SENT' && !row['Status']?.startsWith('PENDING');
+            });
+
+            if (unsentRows.length === 0) {
+                alert('All selected emails have already been sent or scheduled');
+                return;
+            }
+
+            const confirmSend = await showImmediateSendPopup(unsentRows.length);
+            if (!confirmSend) return;
+
+            debugLog(`Sending ${unsentRows.length} emails immediately`);
+            const resetButton = showLoading(sendBtn, 'Sending...');
+            
+            try {
+                const res = await fetch(`${API_BASE}/send`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        spreadsheet_id,
+                        worksheet_name,
+                        row_indices: unsentRows,
+                        brand_name
+                    })
+                });
+
+                const data = await res.json();
+                
+                if (!res.ok) {
+                    throw { detail: data.detail || 'Failed to send emails' };
+                }
+
+                debugLog(`Emails sent successfully: ${data.sent} sent`);
+                alert(`Successfully sent ${data.sent} emails!`);
+                
+                // Removed extra reload here to avoid re-entrancy causing duplicate popups
+                // Reload will be handled by the caller after the whole flow completes
+                
+            } catch (error) {
+                debugLog(`Send failed: ${error.detail || error.message}`);
+                handleError(error, 'Failed to send emails');
+            } finally {
+                resetButton();
+            }
+        }
+
+        // Improved date parsing function
+        function parseDateWithMultipleFormats(dateStr, timeStr) {
+            if (!dateStr || dateStr === 'dd-mm-yyyy') return null;
+            
+            const timeParts = (timeStr || '09:00').split(':');
+            const hours = parseInt(timeParts[0]) || 9;
+            const minutes = parseInt(timeParts[1]) || 0;
+            
+            // Try different date formats
+            const formats = [
+                // dd-mm-yyyy
+                { regex: /^(\d{1,2})-(\d{1,2})-(\d{4})$/, handler: (match) => 
+                    new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]), hours, minutes) },
+                
+                // yyyy-mm-dd
+                { regex: /^(\d{4})-(\d{1,2})-(\d{1,2})$/, handler: (match) => 
+                    new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]), hours, minutes) },
+                
+                // mm/dd/yyyy
+                { regex: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, handler: (match) => 
+                    new Date(parseInt(match[3]), parseInt(match[1]) - 1, parseInt(match[2]), hours, minutes) },
+                
+                // dd/mm/yyyy
+                { regex: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, handler: (match) => 
+                    new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]), hours, minutes) }
+            ];
+            
+            for (const format of formats) {
+                const match = dateStr.match(format.regex);
+                if (match) {
+                    const result = format.handler(match);
+                    debugLog(`Parsed date: ${dateStr} -> ${result}`);
+                    return result;
+                }
+            }
+            
+            // Fallback to Date constructor
+            try {
+                const date = new Date(dateStr);
+                if (!isNaN(date.getTime())) {
+                    date.setHours(hours, minutes, 0, 0);
+                    debugLog(`Parsed date (fallback): ${dateStr} -> ${date}`);
+                    return date;
+                }
+            } catch (e) {
+                console.error('Date parsing error:', e);
+                debugLog(`Date parsing error for ${dateStr}: ${e.message}`);
+            }
+            
+            debugLog(`Could not parse date: ${dateStr}`);
+            return null;
+        }
+
+        // Send emails to selected rows - FIXED VERSION
+        async function sendEmails() {
+            const spreadsheet_id = sheetIdInput.value.trim();
+            const worksheet_name = wsNameInput.value.trim();
+            const brand_name = brandInput.value.trim();
+            const selected = document.querySelectorAll('.sel:checked');
+            const row_indices = Array.from(selected).map(el => parseInt(el.dataset.idx, 10));
+
+            if (!row_indices.length) {
+                alert('Please select at least one row to send');
+                return;
+            }
+
+            debugLog(`Processing ${row_indices.length} selected rows for sending`);
+            
+            // Get CURRENT values from input fields instead of stale rows array
+            let hasFutureSchedules = false;
+            let scheduleInfo = [];
+            let futureRowIndices = [];
+            
+            for (const idx of row_indices) {
+                // Get current values from the actual input fields in the DOM
+                const dateInput = document.querySelector(`.date-input[data-idx="${idx}"]`);
+                const timeInput = document.querySelector(`.time-input[data-idx="${idx}"]`);
+                
+                const dateStr = dateInput ? dateInput.value : '';
+                const timeStr = timeInput ? timeInput.value || '09:00' : '09:00';
+                
+                debugLog(`Checking CURRENT date for row ${idx}: ${dateStr} at ${timeStr}`);
+                
+                if (dateStr && dateStr !== 'dd-mm-yyyy') {
+                    try {
+                        const scheduledDateTime = parseDateWithMultipleFormats(dateStr, timeStr);
+                        
+                        if (scheduledDateTime && !isNaN(scheduledDateTime.getTime())) {
+                            debugLog(`Parsed date successfully: ${scheduledDateTime.toString()}`);
+                            
+                            // Check if this is a FUTURE date/time
+                            if (scheduledDateTime > new Date()) {
+                                hasFutureSchedules = true;
+                                futureRowIndices.push(idx);
+                                scheduleInfo.push({
+                                    rowIndex: idx,
+                                    date: dateStr,
+                                    time: timeStr,
+                                    datetime: scheduledDateTime
+                                });
+                                debugLog(`Row ${idx} has FUTURE date: ${dateStr} ${timeStr}`);
+                            } else {
+                                debugLog(`Row ${idx} has PAST date: ${dateStr} ${timeStr}`);
+                            }
+                        } else {
+                            debugLog(`Row ${idx} has INVALID date format: ${dateStr}`);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing date/time:', e);
+                        debugLog(`Error parsing date for row ${idx}: ${e.message}`);
+                    }
+                } else {
+                    debugLog(`Row ${idx} has no date specified`);
+                }
+            }
+
+            debugLog(`Future schedules found: ${hasFutureSchedules}, count: ${futureRowIndices.length}`);
+
+            // If future schedules found, show scheduling popup
+            if (hasFutureSchedules && futureRowIndices.length > 0) {
+                const scheduleDate = scheduleInfo[0].date;
+                const scheduleTime = scheduleInfo[0].time;
+                
+                debugLog(`Showing scheduling popup for ${futureRowIndices.length} emails`);
+                
+                const confirmSchedule = await showSchedulingPopup(futureRowIndices.length, scheduleDate, scheduleTime);
+                if (!confirmSchedule) return;
+                
+                // Schedule the emails
+                debugLog(`Scheduling ${futureRowIndices.length} emails for ${scheduleDate} at ${scheduleTime}`);
+                const resetButton = showLoading(sendBtn, 'Scheduling...');
+                
+                try {
+                    const res = await fetch(`${API_BASE}/schedule`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            spreadsheet_id,
+                            worksheet_name,
+                            row_indices: futureRowIndices,
+                            brand_name
+                        })
+                    });
+
+                    const data = await res.json();
+                    
+                    if (!res.ok) {
+                        throw { detail: data.detail || 'Failed to schedule emails' };
+                    }
+
+                    debugLog(`Emails scheduled successfully: ${data.scheduled} scheduled`);
+                    alert(`Successfully scheduled ${data.scheduled} emails! They will be sent automatically at ${scheduleTime} on ${scheduleDate}.`);
+                    
+                    // Check if there are any non-future emails to send immediately
+                    const immediateRowIndices = row_indices.filter(idx => !futureRowIndices.includes(idx));
+                    if (immediateRowIndices.length > 0) {
+                        debugLog(`Also sending ${immediateRowIndices.length} immediate emails`);
+                        await sendImmediateEmails(spreadsheet_id, worksheet_name, brand_name, immediateRowIndices);
+                    } else {
+                        debugLog('No immediate emails to send');
+                    }
+                    
+                    // Reload the table to show updated status
+                    loadContacts();
+                    
+                } catch (error) {
+                    debugLog(`Scheduling failed: ${error.detail || error.message}`);
+                    handleError(error, 'Failed to schedule emails');
+                } finally {
+                    resetButton();
+                }
+            } else {
+                // No future schedules, send all emails immediately
+                debugLog('No future schedules found, sending all emails immediately');
+                await sendImmediateEmails(spreadsheet_id, worksheet_name, brand_name, row_indices);
+            }
+        }
+ 
+        // // Test scheduling functionality
+        // async function testScheduling() {
+        //     debugLog("Testing scheduling functionality...");
+        //     const resetButton = showLoading(testScheduleBtn, 'Testing...');
+           
+        //     try {
+        //         // First, get the current scheduled jobs
+        //         const jobsRes = await fetch(`${API_BASE}/scheduler/jobs`);
+        //         const jobsData = await jobsRes.json();
+        //         debugLog(`Current scheduled jobs: ${jobsData.jobs.length}`);
+               
+        //         // Test the scheduled emails endpoint
+        //         const testRes = await fetch(`${API_BASE}/test_scheduled_emails`, {
+        //             method: 'POST'
+        //         });
+               
+        //         const testData = await testRes.json();
+        //         debugLog(`Test result: ${testData.message}`);
+               
+        //         // Reload contacts to see if status changed
+        //         loadContacts();
+               
+        //     } catch (error) {
+        //         debugLog(`Scheduling test failed: ${error.detail || error.message}`);
+        //         handleError(error, 'Failed to test scheduling');
+        //     } finally {
+        //         resetButton();
+        //     }
+        // }
+ 
+        // Event listeners
+        loadBtn.addEventListener('click', loadContacts);
+        previewBtn.addEventListener('click', previewEmail);
+        sendBtn.addEventListener('click', sendEmails);
+        // testScheduleBtn.addEventListener('click', testScheduling);
+        // Auto-refresh event listeners
+        autoRefreshToggle.addEventListener('change', startAutoRefresh);
+        refreshInterval.addEventListener('change', startAutoRefresh);
+        manualRefresh.addEventListener('click', () => {
+            refreshStatusSilently();
+        });
+        refreshDebugBtn.addEventListener('click', () => {
+            debugInfo.innerHTML = '';
+            testConnection();
+        });
+ 
+        // Initialize
+        debugLog("Initializing application...");
+        testConnection();
+    </script>
+</body>
+</html>
