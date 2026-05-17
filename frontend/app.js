@@ -24,7 +24,7 @@ function showLoading(button, text = 'Loading...') {
 function handleError(error, defaultMessage = 'An error occurred') {
     console.error('Error:', error);
     if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        alert('Cannot connect to server. Make sure the backend is running on http://localhost:8000');
+        alert('Cannot connect to server. Please try again.');
     } else if (error.detail) {
         alert(error.detail);
     } else {
