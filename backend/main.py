@@ -8,6 +8,8 @@ from typing import List, Optional, Dict, Any
 from mailer import validate_email_dns
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -547,6 +549,10 @@ def get_scheduled_jobs():
             "args": job.args
         })
     return {"jobs": job_list}
+
+# Serve frontend
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
