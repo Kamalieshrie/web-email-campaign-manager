@@ -1,21 +1,26 @@
 import os
+import json
 import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# SCOPES definition
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive.metadata.readonly'
 ]
 
+def get_credentials(service_account_json: str):
+    """Get credentials from env variable or file"""
+    json_content = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT")
+    if json_content:
+        return Credentials.from_service_account_info(json.loads(json_content), scopes=SCOPES)
+    return Credentials.from_service_account_file(service_account_json, scopes=SCOPES)
+
 def get_drive_service(service_account_json: str):
-    """Get Google Drive service instance with proper scopes"""
-    creds = Credentials.from_service_account_file(service_account_json)
-    drive_service = build('drive', 'v3', credentials=creds)
-    return drive_service
+    creds = get_credentials(service_account_json)
+    return build('drive', 'v3', credentials=creds)
 
 def list_spreadsheets(service_account_json: str):
     """List all spreadsheets in Google Drive"""
@@ -32,12 +37,10 @@ def list_spreadsheets(service_account_json: str):
         return []
 
 def get_ws(service_account_json: str, spreadsheet_id: str, worksheet_name: str):
-    # Use the filename passed from main.py
-    creds = Credentials.from_service_account_file(service_account_json, scopes=SCOPES)
+    creds = get_credentials(service_account_json)
     gc = gspread.authorize(creds)
     sh = gc.open_by_key(spreadsheet_id)
-    ws = sh.worksheet(worksheet_name)
-    return ws
+    return sh.worksheet(worksheet_name)
 
 def sheet_to_df(ws, a1_range: str | None = None) -> pd.DataFrame:
     values = ws.get(a1_range) if a1_range else ws.get_all_values()
