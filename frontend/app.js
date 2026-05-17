@@ -1,4 +1,5 @@
-const API = (path) => `http://localhost:8000${path}`;
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : window.location.origin;
+const API = (path) => `${API_BASE}${path}`;
 
 const q = (sel) => document.querySelector(sel);
 const qa = (sel) => document.querySelectorAll(sel);
