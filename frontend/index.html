@@ -237,7 +237,7 @@
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script>
         // API base URL - points to your backend
-        const API_BASE = 'http://localhost:8000';
+        const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : window.location.origin;
        
         // DOM elements
         const loadBtn = document.getElementById('loadBtn');
